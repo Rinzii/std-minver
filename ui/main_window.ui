@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1700</width>
+    <height>950</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>CE Multi-Compiler Tester</string>
+  </property>
+  <widget class="QWidget" name="centralwidget"/>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1700</width>
+     <height>24</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menuFile">
+    <property name="title">
+     <string>File</string>
+    </property>
+    <addaction name="actionOpenSource"/>
+    <addaction name="actionPreprocessorAddFile"/>
+    <addaction name="actionExportReportHTML"/>
+    <addaction name="actionExportReportJSON"/>
+   </widget>
+   <widget class="QMenu" name="menuView">
+    <property name="title">
+     <string>View</string>
+    </property>
+   <addaction name="actionPreferences"/>
+    <addaction name="actionResetLayoutSession"/>
+   </widget>
+   <addaction name="menuFile"/>
+   <addaction name="menuView"/>
+  </widget>
+  <widget class="QToolBar" name="toolBarMain">
+   <property name="windowTitle">
+    <string>Main</string>
+   </property>
+   <property name="movable">
+    <bool>true</bool>
+   </property>
+   <addaction name="actionProbe"/>
+   <addaction name="actionAbort"/>
+   <addaction name="actionInsertEmptyMain"/>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+  <widget class="QDockWidget" name="dock_editor">
+   <property name="windowTitle">
+    <string>Editor</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <enum>LeftDockWidgetArea</enum>
+   </attribute>
+   <property name="allowedAreas">
+    <set>Qt::AllDockWidgetAreas</set>
+   </property>
+   <property name="features">
+    <set>QDockWidget::DockWidgetMovable|QDockWidget::DockWidgetFloatable|QDockWidget::DockWidgetClosable</set>
+   </property>
+   <widget class="QWidget" name="dockEditorPlaceholder"/>
+  </widget>
+  <widget class="QDockWidget" name="dock_compilers">
+   <property name="windowTitle">
+    <string>Compilers</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <enum>RightDockWidgetArea</enum>
+   </attribute>
+   <property name="allowedAreas">
+    <set>Qt::AllDockWidgetAreas</set>
+   </property>
+   <property name="features">
+    <set>QDockWidget::DockWidgetMovable|QDockWidget::DockWidgetFloatable|QDockWidget::DockWidgetClosable</set>
+   </property>
+   <widget class="QWidget" name="dockCompilersPlaceholder"/>
+  </widget>
+  <widget class="QDockWidget" name="dock_options">
+   <property name="windowTitle">
+    <string>Options</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <enum>RightDockWidgetArea</enum>
+   </attribute>
+   <property name="allowedAreas">
+    <set>Qt::AllDockWidgetAreas</set>
+   </property>
+   <property name="features">
+    <set>QDockWidget::DockWidgetMovable|QDockWidget::DockWidgetFloatable|QDockWidget::DockWidgetClosable</set>
+   </property>
+   <widget class="QWidget" name="dockOptionsPlaceholder"/>
+  </widget>
+  <widget class="QDockWidget" name="dock_results">
+   <property name="windowTitle">
+    <string>Results</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <enum>BottomDockWidgetArea</enum>
+   </attribute>
+   <property name="allowedAreas">
+    <set>Qt::AllDockWidgetAreas</set>
+   </property>
+   <property name="features">
+    <set>QDockWidget::DockWidgetMovable|QDockWidget::DockWidgetFloatable|QDockWidget::DockWidgetClosable</set>
+   </property>
+   <widget class="QWidget" name="dockResultsPlaceholder"/>
+  </widget>
+  <widget class="QDockWidget" name="dock_log">
+   <property name="windowTitle">
+    <string>Log</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <enum>BottomDockWidgetArea</enum>
+   </attribute>
+   <property name="allowedAreas">
+    <set>Qt::AllDockWidgetAreas</set>
+   </property>
+   <property name="features">
+    <set>QDockWidget::DockWidgetMovable|QDockWidget::DockWidgetFloatable|QDockWidget::DockWidgetClosable</set>
+   </property>
+   <widget class="QWidget" name="dockLogPlaceholder"/>
+  </widget>
+  <widget class="QDockWidget" name="dock_report">
+   <property name="windowTitle">
+    <string>Report</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <enum>RightDockWidgetArea</enum>
+   </attribute>
+   <property name="allowedAreas">
+    <set>Qt::AllDockWidgetAreas</set>
+   </property>
+   <property name="features">
+    <set>QDockWidget::DockWidgetMovable|QDockWidget::DockWidgetFloatable|QDockWidget::DockWidgetClosable</set>
+   </property>
+   <widget class="QTextBrowser" name="report_browser"/>
+  </widget>
+  <action name="actionExportReportHTML">
+   <property name="text">
+    <string>Export Report (HTML)...</string>
+   </property>
+  </action>
+  <action name="actionOpenSource">
+   <property name="text">
+    <string>Open Source...</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+O</string>
+   </property>
+  </action>
+  <action name="actionPreprocessorAddFile">
+   <property name="text">
+    <string>Preprocessor Add File...</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+Shift+O</string>
+   </property>
+  </action>
+  <action name="actionExportReportJSON">
+   <property name="text">
+    <string>Export Report (JSON)...</string>
+   </property>
+  </action>
+  <action name="actionResetLayoutSession">
+   <property name="text">
+    <string>Reset Layout / Session</string>
+   </property>
+  </action>
+  <action name="actionPreferences">
+   <property name="text">
+    <string>Preferences...</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+,</string>
+   </property>
+  </action>
+  <action name="actionProbe">
+   <property name="text">
+    <string>Probe</string>
+   </property>
+  </action>
+  <action name="actionAbort">
+   <property name="text">
+    <string>Abort</string>
+   </property>
+  </action>
+  <action name="actionInsertEmptyMain">
+   <property name="text">
+    <string>Insert empty main</string>
+   </property>
+  </action>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
+

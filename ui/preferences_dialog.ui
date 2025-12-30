@@ -1,0 +1,402 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferencesDialog</class>
+ <widget class="QDialog" name="PreferencesDialog">
+  <property name="windowTitle">
+   <string>Preferences</string>
+  </property>
+  <property name="modal">
+   <bool>true</bool>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="QScrollArea" name="scrollArea">
+     <property name="widgetResizable">
+      <bool>true</bool>
+     </property>
+     <widget class="QWidget" name="scrollAreaWidgetContents">
+      <layout class="QVBoxLayout" name="scrollLayout">
+       <item>
+        <widget class="QGroupBox" name="groupAppearance">
+         <property name="title">
+          <string>Appearance</string>
+         </property>
+         <layout class="QFormLayout" name="formLayoutAppearance">
+          <item row="0" column="0">
+           <widget class="QLabel" name="labelThemeMode">
+            <property name="text">
+             <string>Theme mode</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QComboBox" name="comboThemeMode">
+            <item>
+             <property name="text">
+              <string>Auto (follow system)</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Dark</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Light</string>
+             </property>
+            </item>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="labelThemeFile">
+            <property name="text">
+             <string>Theme file</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <layout class="QHBoxLayout" name="layoutThemeFile">
+            <item>
+             <widget class="QLineEdit" name="editThemePath">
+              <property name="placeholderText">
+               <string>Path to a theme.json file (optional)</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btnBrowseTheme">
+              <property name="text">
+               <string>Browse…</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupFonts">
+         <property name="title">
+          <string>Fonts</string>
+         </property>
+         <layout class="QFormLayout" name="formLayoutFonts">
+          <item row="0" column="0">
+           <widget class="QLabel" name="labelUIFont">
+            <property name="text">
+             <string>UI font size (pt)</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QSpinBox" name="spinUIFontPt">
+            <property name="minimum">
+             <number>8</number>
+            </property>
+            <property name="maximum">
+             <number>28</number>
+            </property>
+            <property name="value">
+             <number>13</number>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="labelEditorFont">
+            <property name="text">
+             <string>Editor font size (pt)</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QSpinBox" name="spinEditorFontPt">
+            <property name="minimum">
+             <number>8</number>
+            </property>
+            <property name="maximum">
+             <number>28</number>
+            </property>
+            <property name="value">
+             <number>12</number>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupPreprocessor">
+         <property name="title">
+          <string>Preprocessor Add File</string>
+         </property>
+         <layout class="QFormLayout" name="formLayoutPreprocessor">
+          <item row="0" column="0">
+           <widget class="QLabel" name="labelCompileCommands">
+            <property name="text">
+             <string>compile_commands.json</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <layout class="QHBoxLayout" name="layoutCompileCommands">
+            <item>
+             <widget class="QLineEdit" name="editCompileCommandsPath">
+              <property name="placeholderText">
+               <string>Path to compile_commands.json (optional)</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btnBrowseCompileCommands">
+              <property name="text">
+               <string>Browse…</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="labelExtraIncludeDirs">
+            <property name="text">
+             <string>Extra include dirs</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QTextEdit" name="editExtraIncludeDirs">
+            <property name="placeholderText">
+             <string>One directory per line. Used for resolving #include "..."</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QCheckBox" name="checkInlineOnce">
+            <property name="text">
+             <string>Inline each header only once</string>
+            </property>
+            <property name="checked">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item row="3" column="1">
+           <widget class="QCheckBox" name="checkAutoCopy">
+            <property name="text">
+             <string>Auto-copy flattened output to clipboard</string>
+            </property>
+            <property name="checked">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item row="4" column="1">
+           <widget class="QCheckBox" name="checkStripPragmaOnce">
+            <property name="text">
+             <string>Strip #pragma once in inlined files</string>
+            </property>
+            <property name="checked">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item row="5" column="1">
+           <widget class="QCheckBox" name="checkEmitLineDirectives">
+            <property name="text">
+             <string>Emit #line directives (preserve file/line in diagnostics)</string>
+            </property>
+            <property name="checked">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item row="6" column="1">
+           <widget class="QCheckBox" name="checkIncludeDebugComments">
+            <property name="text">
+             <string>Include cetest debug comments in flattened output</string>
+            </property>
+            <property name="checked">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupCompilerFlags">
+         <property name="title">
+          <string>Compiler flags</string>
+         </property>
+         <layout class="QFormLayout" name="formLayoutCompilerFlags">
+          <item row="0" column="0">
+           <widget class="QLabel" name="labelExtraFlagsGnu">
+            <property name="text">
+             <string>Extra flags (GCC/Clang style)</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QPlainTextEdit" name="editExtraFlagsGnu">
+            <property name="placeholderText">
+             <string>Example: -O0 -Wno-error -fno-exceptions</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="labelExtraFlagsMsvc">
+            <property name="text">
+             <string>Extra flags (MSVC style)</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QPlainTextEdit" name="editExtraFlagsMsvc">
+            <property name="placeholderText">
+             <string>Example: /permissive- /Zc:__cplusplus /wd4996</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QLabel" name="labelGroupFlagsHint">
+            <property name="text">
+             <string>Per-group flags: right-click a family/platform/series leaf in the Compilers pane.</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupLibraries">
+         <property name="title">
+          <string>Compiler Explorer libraries</string>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayoutLibraries">
+          <item>
+           <widget class="QLabel" name="labelLibrariesHint">
+            <property name="text">
+             <string>Add CE-provided libraries to all compilers, a compiler family, or a specific compiler id.</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QTableWidget" name="tableLibraryRules">
+            <property name="alternatingRowColors">
+             <bool>true</bool>
+            </property>
+            <property name="selectionBehavior">
+             <enum>QAbstractItemView::SelectRows</enum>
+            </property>
+            <property name="selectionMode">
+             <enum>QAbstractItemView::SingleSelection</enum>
+            </property>
+            <property name="editTriggers">
+             <set>QAbstractItemView::NoEditTriggers</set>
+            </property>
+            <column>
+             <property name="text">
+              <string>Scope</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>Target</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>Library</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>Version</string>
+             </property>
+            </column>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="layoutLibraryButtons">
+            <item>
+             <widget class="QPushButton" name="btnLibAdd">
+              <property name="text">
+               <string>Add…</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btnLibEdit">
+              <property name="text">
+               <string>Edit…</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btnLibRemove">
+              <property name="text">
+               <string>Remove</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="horizontalSpacerLibs">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btnLibRefresh">
+              <property name="text">
+               <string>Refresh from CE</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="verticalSpacerScroll">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>20</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <item>
+    <widget class="QDialogButtonBox" name="buttonBox">
+     <property name="standardButtons">
+      <set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
+
