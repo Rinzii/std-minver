@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import http.client
 import json
+import os
 import socket
 import threading
 import time
@@ -29,7 +31,9 @@ class CeClient:
 
         self.base_url = base_url.rstrip("/")
         self._rate = RateLimiter(min_request_interval_s)
-        self._compile_cache: dict[tuple[str, str, str], dict[str, Any]] = {}
+        # Cache can be touched from multiple worker threads (e.g. probing + future background tasks).
+        self._cache_lock = threading.Lock()
+        self._compile_cache: dict[tuple[str, str, tuple[tuple[str, str], ...], str], dict[str, Any]] = {}
 
     def _request_json(
         self,
@@ -233,7 +237,8 @@ class CeClient:
             libs_key = tuple(sorted(set(pairs)))
 
         key = (compiler_id, user_arguments, libs_key, h)
-        hit = self._compile_cache.get(key)
+        with self._cache_lock:
+            hit = self._compile_cache.get(key)
         if hit is not None:
             LOG.debug("Compile cache hit compiler_id=%s", compiler_id)
             return hit
@@ -271,7 +276,8 @@ class CeClient:
             timeout_s=timeout_s,
             abort_event=abort_event,
         )
-        self._compile_cache[key] = resp
+        with self._cache_lock:
+            self._compile_cache[key] = resp
         return resp
 
 
@@ -367,6 +373,8 @@ class CeProbeWorker(QObject):
         extra_flags: "ExtraFlagsConfig",
         library_rules: list[LibraryRule],
         abort_event: threading.Event,
+        *,
+        max_workers: int | None = None,
     ):
 
         super().__init__()
@@ -377,55 +385,86 @@ class CeProbeWorker(QObject):
         self._extra_flags = extra_flags
         self._library_rules = list(library_rules or [])
         self._abort = abort_event
+        self._cancel = threading.Event()
+        self._max_workers = int(max_workers) if max_workers is not None else 0
 
     def _cancelled(self) -> bool:
 
-        if self._abort.is_set():
+        if self._abort.is_set() or self._cancel.is_set():
             return True
-        t = QThread.currentThread()
-        return bool(t and t.isInterruptionRequested())
+        try:
+            t = QThread.currentThread()
+            return bool(t and t.isInterruptionRequested())
+        except Exception:
+            return False
+
+    @staticmethod
+    def _default_max_workers(job_count: int) -> int:
+
+        # Heuristic: enough parallelism to hide network latency, but still respectful of CE.
+        # Note: RateLimiter still throttles requests globally.
+        cpu = os.cpu_count() or 4
+        return max(1, min(int(job_count), min(8, cpu)))
 
     def run(self):
 
         try:
-            for platform, series, compiler_type, compilers in self._jobs:
-                if self._cancelled():
-                    raise CancelledByUser()
+            jobs = list(self._jobs or [])
+            if not jobs:
+                self.finished.emit()
+                return
 
-                try:
-                    LOG.debug(
-                        "Probe start group fam=%s platform=%s series=%s candidates=%d",
-                        compiler_type,
-                        platform,
-                        series,
-                        len(compilers),
-                    )
-                    summary = self._probe_group_binary(platform, series, compiler_type, compilers)
-                    self.group_done.emit(summary)
-                except CancelledByUser:
-                    raise
-                except Exception as e:
-                    LOG.exception("Group probe failed fam=%s platform=%s series=%s", compiler_type, platform, series)
-                    summary = CeGroupSummary(
-                        platform=platform,
-                        series=series,
-                        compiler_type=compiler_type,
-                        highest_supported=None,
-                        lowest_supported=None,
-                        first_failure=CeAttempt(
+            max_workers = self._max_workers if self._max_workers > 0 else self._default_max_workers(len(jobs))
+            LOG.debug("Probe start groups=%d max_workers=%d", len(jobs), max_workers)
+
+            def do_group(job: tuple[str, str, str, list[CompilerInfo]]) -> CeGroupSummary:
+                platform, series, compiler_type, compilers = job
+                if self._abort.is_set() or self._cancel.is_set():
+                    raise CancelledByUser()
+                return self._probe_group_binary(platform, series, compiler_type, compilers)
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="cetest-probe") as ex:
+                future_to_job: dict[concurrent.futures.Future[CeGroupSummary], tuple[str, str, str, list[CompilerInfo]]] = {}
+                for job in jobs:
+                    if self._cancelled():
+                        raise CancelledByUser()
+                    fut = ex.submit(do_group, job)
+                    future_to_job[fut] = job
+
+                for fut in concurrent.futures.as_completed(future_to_job):
+                    if self._cancelled():
+                        self._cancel.set()
+                        raise CancelledByUser()
+
+                    platform, series, compiler_type, compilers = future_to_job[fut]
+                    try:
+                        summary = fut.result()
+                        self.group_done.emit(summary)
+                    except CancelledByUser:
+                        self._cancel.set()
+                        raise
+                    except Exception as e:
+                        LOG.exception("Group probe failed fam=%s platform=%s series=%s", compiler_type, platform, series)
+                        summary = CeGroupSummary(
                             platform=platform,
                             series=series,
                             compiler_type=compiler_type,
-                            compiler_id="",
-                            compiler_name="(probe error)",
-                            semver=None,
-                            code=CODE_TRANSPORT_ERROR,
-                            stderr_text=str(e),
-                        ),
-                        attempts=[],
-                        inconclusive_reason=f"Probe error: {e}",
-                    )
-                    self.group_done.emit(summary)
+                            highest_supported=None,
+                            lowest_supported=None,
+                            first_failure=CeAttempt(
+                                platform=platform,
+                                series=series,
+                                compiler_type=compiler_type,
+                                compiler_id="",
+                                compiler_name="(probe error)",
+                                semver=None,
+                                code=CODE_TRANSPORT_ERROR,
+                                stderr_text=str(e),
+                            ),
+                            attempts=[],
+                            inconclusive_reason=f"Probe error: {e}",
+                        )
+                        self.group_done.emit(summary)
 
             self.finished.emit()
         except CancelledByUser:

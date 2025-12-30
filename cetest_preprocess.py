@@ -236,6 +236,104 @@ def _load_compile_commands_include_dirs(cc_path: Path, selected_file: Path) -> t
     return q, u, s, meta
 
 
+def find_companion_source_from_compile_commands(
+    cc_path: Path,
+    header_file: Path,
+    *,
+    allowed_exts: tuple[str, ...] = (".cpp", ".cc", ".cxx", ".c", ".mm"),
+) -> tuple[Path | None, dict[str, Any]]:
+
+    """Try to locate a companion source file for a header using compile_commands.json.
+
+    Strategy:
+    - Consider only compile entries whose file stem matches the header stem (case-insensitive),
+      and whose extension is in allowed_exts.
+    - Rank candidates by path proximity to the header directory (longest common path prefix).
+    - Ignore entries that point to non-existent files (stale compile DB).
+    """
+
+    cc_path = cc_path.expanduser()
+    header_file = header_file.expanduser()
+    try:
+        header_file = header_file.resolve()
+    except Exception:
+        pass
+
+    try:
+        raw = cc_path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except Exception as e:
+        raise ValueError(f"Failed to read/parse compile_commands.json: {e}") from e
+
+    if not isinstance(data, list):
+        raise ValueError("compile_commands.json must be a JSON array.")
+
+    stem_cf = header_file.stem.casefold()
+    header_dir = header_file.parent
+    allowed_cf = {e.casefold() for e in allowed_exts}
+
+    def _common_prefix_len(a: Path, b: Path) -> int:
+        ap = a.parts
+        bp = b.parts
+        n = 0
+        for x, y in zip(ap, bp):
+            if str(x).casefold() != str(y).casefold():
+                break
+            n += 1
+        return n
+
+    best: Path | None = None
+    best_score = -1
+    cand_count = 0
+
+    for ent in data:
+        if not isinstance(ent, dict):
+            continue
+        f = ent.get("file")
+        d = ent.get("directory")
+        if not isinstance(f, str) or not f.strip():
+            continue
+        dir_p = Path(d).expanduser() if isinstance(d, str) and d.strip() else header_dir
+        fp = dir_p / Path(f).expanduser() if not Path(f).is_absolute() else Path(f).expanduser()
+        try:
+            fp = fp.resolve()
+        except Exception:
+            fp = fp.absolute()
+
+        if fp.suffix.casefold() not in allowed_cf:
+            continue
+        if fp.stem.casefold() != stem_cf:
+            continue
+        if not (fp.exists() and fp.is_file()):
+            continue
+
+        cand_count += 1
+        score = _common_prefix_len(header_dir, fp.parent)
+        if score > best_score:
+            best_score = score
+            best = fp
+
+    meta: dict[str, Any]
+    if best is None:
+        meta = {
+            "matched": False,
+            "reason": "no matching translation unit found",
+            "selected_header": _norm_abs(header_file),
+            "allowed_exts": list(allowed_exts),
+            "candidates_considered": int(cand_count),
+        }
+    else:
+        meta = {
+            "matched": True,
+            "selected_header": _norm_abs(header_file),
+            "matched_companion": _norm_abs(best),
+            "score": int(best_score),
+            "allowed_exts": list(allowed_exts),
+            "candidates_considered": int(cand_count),
+        }
+    return best, meta
+
+
 _RE_INCLUDE_QUOTED = re.compile(r'^\s*#\s*include\s*"([^"]+)"')
 
 
@@ -247,6 +345,8 @@ def flatten_user_includes(
     strip_pragma_once: bool,
     emit_line_directives: bool,
     include_debug_comments: bool,
+    *,
+    compile_commands_selected_file: Path | None = None,
 ) -> tuple[str, dict[str, Any]]:
 
     """Inline quoted includes into a single CE-friendly translation unit (plus stats)."""
@@ -263,8 +363,9 @@ def flatten_user_includes(
     cc_meta: dict[str, Any] = {"matched": False}
     if compile_commands_path is not None:
         cc = compile_commands_path.expanduser()
+        selected_for_cc = compile_commands_selected_file.expanduser() if compile_commands_selected_file is not None else root_file
         if cc.exists() and cc.is_file():
-            q, u, s, cc_meta2 = _load_compile_commands_include_dirs(cc, root_file)
+            q, u, s, cc_meta2 = _load_compile_commands_include_dirs(cc, selected_for_cc)
             quote_dirs.extend(q)
             user_dirs.extend(u)
             sys_dirs.extend(s)
@@ -303,6 +404,7 @@ def flatten_user_includes(
         "include_lines_unresolved": 0,
         "root": str(root_file),
         "compile_commands_used": str(compile_commands_path) if compile_commands_path is not None else "",
+        "compile_commands_selected_file": str(compile_commands_selected_file) if compile_commands_selected_file is not None else str(root_file),
         "compile_commands_match": cc_meta,
         "quote_dirs": [str(p) for p in quote_dirs],
         "user_include_dirs": [str(p) for p in user_dirs],

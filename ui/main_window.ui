@@ -29,6 +29,7 @@
     </property>
     <addaction name="actionOpenSource"/>
     <addaction name="actionPreprocessorAddFile"/>
+   <addaction name="actionPreprocessorAddHeaderSource"/>
     <addaction name="actionExportReportHTML"/>
     <addaction name="actionExportReportJSON"/>
    </widget>
@@ -163,6 +164,11 @@
    </property>
    <property name="shortcut">
     <string>Ctrl+Shift+O</string>
+   </property>
+  </action>
+  <action name="actionPreprocessorAddHeaderSource">
+   <property name="text">
+    <string>Preprocessor Header &amp; Source Add...</string>
    </property>
   </action>
   <action name="actionExportReportJSON">

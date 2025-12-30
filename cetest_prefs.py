@@ -10,6 +10,7 @@ from typing import Any
 
 from PyQt6.QtCore import QSettings
 
+from cetest_core import CancelledByUser
 from cetest_flags import ExtraFlagsConfig, _flag_style_for_family, _normalize_user_flags_text, std_flags_for_family
 from cetest_models import normalize_family_token
 
@@ -354,24 +355,29 @@ class RateLimiter:
         self._last = 0.0
 
     def wait(self, abort_event: threading.Event | None = None) -> None:
-
-
+        # Important: don't sleep while holding the lock, otherwise a single slow waiter
+        # can block all other threads and make cancellation feel unresponsive.
         with self._lock:
             if abort_event is not None and abort_event.is_set():
                 raise CancelledByUser()
+
             now = time.monotonic()
-            dt = now - self._last
-            if dt < self._min:
-                sleep_s = self._min - dt
-                if abort_event is None:
-                    time.sleep(sleep_s)
-                else:
-                    end = time.monotonic() + sleep_s
-                    while time.monotonic() < end:
-                        if abort_event.is_set():
-                            raise CancelledByUser()
-                        time.sleep(0.02)
-            self._last = time.monotonic()
+            earliest = self._last + self._min
+            target = max(now, earliest)
+            self._last = target
+            sleep_s = max(0.0, target - now)
+
+        if sleep_s <= 0:
+            return
+        if abort_event is None:
+            time.sleep(sleep_s)
+            return
+
+        end = time.monotonic() + sleep_s
+        while time.monotonic() < end:
+            if abort_event.is_set():
+                raise CancelledByUser()
+            time.sleep(0.02)
 
 
 class AppSettings:

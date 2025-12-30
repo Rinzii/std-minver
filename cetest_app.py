@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+import tempfile
 import threading
 from pathlib import Path
 from typing import Any
@@ -72,7 +74,7 @@ from cetest_prefs import (
     _save_library_rules,
     _save_preferences_state,
 )
-from cetest_preprocess import _split_lines_paths, flatten_user_includes
+from cetest_preprocess import _split_lines_paths, find_companion_source_from_compile_commands, flatten_user_includes
 from cetest_ui_widgets import CompilersPanel, EditorWidget, LibraryRuleDialog, LogPanel, OptionsPanel, ResultsPanel
 
 
@@ -636,6 +638,7 @@ class MainWindow(QMainWindow):
         self._probe_worker: CeProbeWorker | None = None
         self._load_thread: QThread | None = None
         self._load_worker: CeLoadWorker | None = None
+        self._close_in_progress = False
 
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
@@ -742,6 +745,8 @@ class MainWindow(QMainWindow):
             self.actionOpenSource.triggered.connect(self.open_source_file)
         if hasattr(self, "actionPreprocessorAddFile"):
             self.actionPreprocessorAddFile.triggered.connect(self.preprocessor_add_file)
+        if hasattr(self, "actionPreprocessorAddHeaderSource"):
+            self.actionPreprocessorAddHeaderSource.triggered.connect(self.preprocessor_add_header_source)
         self.actionExportReportHTML.triggered.connect(self.export_report_html)
         self.actionExportReportJSON.triggered.connect(self.export_report_json)
         self.actionResetLayoutSession.triggered.connect(self.reset_layout_and_session)
@@ -934,6 +939,205 @@ class MainWindow(QMainWindow):
         self._log(msg, clear=False)
         self.statusbar.showMessage(msg, 8000)
 
+    def preprocessor_add_header_source(self) -> None:
+
+        start = self._suggest_open_source_path()
+        path_str, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select header to flatten (and optionally include matching .cpp)",
+            start,
+            "C/C++ Headers (*.h *.hh *.hpp *.hxx);;C/C++ Files (*.c *.cc *.cpp *.cxx *.h *.hh *.hpp *.hxx *.ixx *.cppm);;All Files (*)",
+        )
+        if not path_str:
+            return
+
+        header = Path(path_str).expanduser()
+        try:
+            header = header.resolve()
+        except Exception:
+            pass
+        self._settings.set_value(AppSettings.K_LAST_OPEN_PATH, str(header))
+
+        # Guess the companion source file by stem (foo.hpp -> foo.cpp), but be forgiving:
+        # - handle case-only differences (Breakpoint.cpp vs breakpoint.cpp)
+        # - allow common alternatives (.cc/.cxx/.c)
+        companion: Path | None = None
+        source_exts = (".cpp", ".cc", ".cxx", ".c", ".mm")
+
+        def _find_in_dir(d: Path) -> Path | None:
+            # Fast path: exact name checks.
+            for ext in source_exts + tuple(e.upper() for e in source_exts):
+                cand = d / f"{header.stem}{ext}"
+                if cand.exists() and cand.is_file():
+                    return cand
+            # Fallback: case-insensitive scan.
+            try:
+                stem_cf = header.stem.casefold()
+                for ent in d.iterdir():
+                    if not ent.is_file():
+                        continue
+                    if ent.stem.casefold() != stem_cf:
+                        continue
+                    if ent.suffix.casefold() in source_exts:
+                        return ent
+            except Exception:
+                return None
+            return None
+
+        # Search in the header directory first, then a few common nearby source dirs.
+        search_dirs: list[Path] = [header.parent]
+        try:
+            root = header.parent.parent
+            search_dirs.extend([root / "src", root / "source", root / "Source", root / "Sources", root])
+        except Exception:
+            pass
+
+        seen_dirs: set[str] = set()
+        searched_dirs: list[str] = []
+        for d in search_dirs:
+            try:
+                d2 = d.resolve()
+            except Exception:
+                d2 = d
+            key = str(d2)
+            if key in seen_dirs:
+                continue
+            seen_dirs.add(key)
+            if not (d2.exists() and d2.is_dir()):
+                continue
+            searched_dirs.append(str(d2))
+            companion = _find_in_dir(d2)
+            if companion is not None:
+                break
+        has_companion = companion is not None
+        companion_meta: dict[str, Any] | None = None
+
+        prefs = _load_preferences_state(self._settings, default_ui_pt=self._ui_font_pt, default_editor_pt=self._editor_font_pt)
+        extra_dirs_raw = _split_lines_paths(str(prefs.extra_include_dirs_text or ""))
+        cc_path = Path(str(prefs.compile_commands_path)).expanduser() if prefs.compile_commands_path.strip() else None
+        inline_once = bool(prefs.inline_once)
+        auto_copy = bool(prefs.auto_copy)
+        strip_po = bool(prefs.strip_pragma_once)
+        emit_line = bool(prefs.emit_line_directives)
+        dbg = bool(prefs.include_debug_comments)
+
+        # If we still didn't find a companion, try compile_commands.json (if configured).
+        if companion is None and cc_path is not None and cc_path.exists() and cc_path.is_file():
+            try:
+                comp2, meta2 = find_companion_source_from_compile_commands(cc_path, header)
+                if comp2 is not None:
+                    companion = comp2
+                    has_companion = True
+                companion_meta = meta2
+            except Exception as e:
+                companion_meta = {"matched": False, "reason": f"compile_commands lookup failed: {e}"}
+
+        # Ensure the selected header's directory is searchable so our wrapper's includes resolve
+        # even when the wrapper lives in a temp directory.
+        base_dir = header.parent
+        # Also normalize any relative dirs from preferences relative to the selected header,
+        # not the temp wrapper location.
+        extra_dirs_norm: list[Path] = []
+        for d in extra_dirs_raw:
+            p = d.expanduser()
+            if not p.is_absolute():
+                p = base_dir / p
+            extra_dirs_norm.append(p)
+
+        extra_dirs2: list[Path] = [base_dir]
+        for d in extra_dirs_norm:
+            if str(d) != str(base_dir):
+                extra_dirs2.append(d)
+
+        # Build a tiny wrapper TU that includes the header and then the companion .cpp (if present).
+        wrapper_name = f"cetest_{header.stem}_wrapper.cpp"
+        # Use a relative include when possible (more portable in the flattened output),
+        # otherwise fall back to an absolute include path.
+        companion_inc: str | None = None
+        if companion is not None:
+            try:
+                companion_inc = str(companion.relative_to(base_dir))
+            except Exception:
+                companion_inc = str(companion)
+
+        wrapper_lines: list[str] = [
+            f'/* [cetest] generated wrapper for "Preprocessor Header & Source Add" */\n',
+            f'/* [cetest] header: "{header.name}" */\n',
+            f'#include "{header.name}"\n',
+        ]
+        if has_companion:
+            wrapper_lines.extend(
+                [
+                    f'\n/* [cetest] companion source: "{Path(companion_inc).name if companion_inc else ""}" */\n',
+                    f'#include "{companion_inc}"\n',
+                ]
+            )
+        else:
+            wrapper_lines.extend(
+                [
+                    "\n",
+                    f'/* [cetest] NOTE: no companion source file found for stem: {header.stem} */\n',
+                    f"/* [cetest] searched dirs: {', '.join(searched_dirs) if searched_dirs else '(none)'} */\n",
+                    "/* [cetest] A stub TU is generated after the header so CETest has something to compile. */\n",
+                    "\n",
+                    f"// {header.stem}.cpp (generated)\n",
+                    "// Add code here if you want the TU to reference the header.\n",
+                    "\n",
+                ]
+            )
+
+        status_target = (
+            f"{header.name} + {Path(companion_inc).name if companion_inc else 'companion'}"
+            if has_companion
+            else f"{header.name} + (generated {header.stem}.cpp)"
+        )
+        self._log(f"Flattening (header+source): {status_target}", clear=False)
+        if isinstance(companion_meta, dict) and companion_meta.get("matched"):
+            self._log(f"compile_commands companion match: {companion_meta.get('matched_companion')} (score={companion_meta.get('score')})", clear=False)
+        self.statusbar.showMessage("Flattening header+source...", 0)
+
+        try:
+            with tempfile.TemporaryDirectory(prefix="cetest-pp-") as td:
+                wrapper_path = Path(td) / wrapper_name
+                wrapper_path.write_text("".join(wrapper_lines), encoding="utf-8")
+                flattened, st = flatten_user_includes(
+                    root_file=wrapper_path,
+                    extra_include_dirs=extra_dirs2,
+                    compile_commands_path=cc_path,
+                    compile_commands_selected_file=(companion or header),
+                    inline_once=inline_once,
+                    strip_pragma_once=strip_po,
+                    emit_line_directives=emit_line,
+                    include_debug_comments=dbg,
+                )
+        except Exception as e:
+            LOG.exception("Preprocessor Header & Source Add failed for: %s", header)
+            QMessageBox.critical(self, "Preprocessor Header & Source Add failed", f"Could not flatten:\n{header}\n\n{e}")
+            self.statusbar.showMessage("Preprocessor Header & Source Add failed", 7000)
+            return
+
+        self._current_source_path = header
+        self.editor.setText(flattened)
+        self.setWindowTitle(f"CE Multi-Compiler Tester — {status_target} (flattened)")
+
+        if auto_copy:
+            try:
+                cb = QApplication.clipboard()
+                if cb is not None:
+                    cb.setText(flattened)
+            except Exception:
+                LOG.exception("Failed to copy flattened output to clipboard")
+
+        msg = (
+            f"Flattened {status_target}: inlined_files={st.get('files_inlined')} "
+            f"inlined_includes={st.get('include_lines_inlined')} "
+            f"unresolved_includes={st.get('include_lines_unresolved')}"
+        )
+        if not has_companion and not inline_once:
+            msg += " (note: inline-once is off; duplicates are more likely if you add a real companion .cpp later)"
+        self._log(msg, clear=False)
+        self.statusbar.showMessage(msg, 9000)
+
     def _mk_dock(self, title: str, widget: QWidget) -> QDockWidget:
 
         d = QDockWidget(title, self)
@@ -971,26 +1175,93 @@ class MainWindow(QMainWindow):
         except RuntimeError:
             return False
 
+    def _any_background_running(self) -> bool:
+
+        return self._thread_is_running(self._probe_thread) or self._thread_is_running(self._load_thread)
+
+    def _request_stop_thread(self, th: QThread | None) -> None:
+
+        if not self._thread_is_running(th):
+            return
+        assert th is not None
+        try:
+            th.requestInterruption()
+        except RuntimeError:
+            pass
+        try:
+            th.quit()
+        except RuntimeError:
+            pass
+
+    def _finish_close_if_ready(self) -> None:
+
+        if not self._close_in_progress:
+            return
+        if self._any_background_running():
+            return
+        # Trigger a second close attempt now that background work is done.
+        QTimer.singleShot(0, self.close)
+
+    def _force_stop_threads_and_close(self) -> None:
+
+        if not self._close_in_progress:
+            return
+        if not self._any_background_running():
+            self._finish_close_if_ready()
+            return
+
+        def _stop_thread(th: QThread | None, *, name: str, timeout_ms: int = 1500) -> None:
+            if not self._thread_is_running(th):
+                return
+            assert th is not None
+            self._request_stop_thread(th)
+            try:
+                ok = bool(th.wait(int(timeout_ms)))
+            except RuntimeError:
+                ok = True
+            if ok:
+                return
+
+            LOG.warning("Thread did not stop in time; forcing terminate. name=%s timeout_ms=%d", name, timeout_ms)
+            try:
+                th.terminate()
+            except RuntimeError:
+                return
+            try:
+                th.wait(2000)
+            except RuntimeError:
+                pass
+
+        _stop_thread(self._probe_thread, name="probe")
+        _stop_thread(self._load_thread, name="load")
+        self._finish_close_if_ready()
+
     def closeEvent(self, event):
 
-        self.abort_probe()
-        self._load_abort.set()
+        # If background work is active, don't let Qt start destroying objects yet.
+        # We'll abort + request stop, then close again once threads have actually finished.
+        if self._any_background_running() and not self._close_in_progress:
+            self._close_in_progress = True
+            self.abort_probe()
+            self._load_abort.set()
+            self.statusbar.showMessage("Closing (waiting for background tasks)...", 0)
 
-        if self._thread_is_running(self._probe_thread):
-            try:
-                self._probe_thread.requestInterruption()
-                self._probe_thread.quit()
-                self._probe_thread.wait(2000)
-            except RuntimeError:
-                pass
+            # Ensure we attempt to stop, and re-attempt close when threads finish.
+            for th in (self._probe_thread, self._load_thread):
+                if th is not None:
+                    try:
+                        th.finished.connect(self._finish_close_if_ready)
+                    except RuntimeError:
+                        pass
+            self._request_stop_thread(self._probe_thread)
+            self._request_stop_thread(self._load_thread)
+            QTimer.singleShot(8000, self._force_stop_threads_and_close)
+            event.ignore()
+            return
 
-        if self._thread_is_running(self._load_thread):
-            try:
-                self._load_thread.requestInterruption()
-                self._load_thread.quit()
-                self._load_thread.wait(2000)
-            except RuntimeError:
-                pass
+        if self._close_in_progress:
+            # Second time through (or after timeout) make one last best-effort to stop threads.
+            self._force_stop_threads_and_close()
 
         self._save_layout_now()
         self._save_session_values()
@@ -1099,21 +1370,33 @@ class MainWindow(QMainWindow):
 
     def _start_load_compilers(self) -> None:
 
-        self._load_thread = QThread(self)
-        self._load_worker = CeLoadWorker(self._ce, self._load_abort)
-        self._load_worker.moveToThread(self._load_thread)
+        thread = QThread()
+        thread.setObjectName("cetest-load-thread")
+        worker = CeLoadWorker(self._ce, self._load_abort)
+        worker.moveToThread(thread)
 
-        self._load_thread.started.connect(self._load_worker.run)
-        self._load_worker.loaded.connect(self._on_compilers_loaded)
-        self._load_worker.failed.connect(self._on_compilers_failed)
-        self._load_worker.aborted.connect(self._on_compilers_aborted)
+        self._load_thread = thread
+        self._load_worker = worker
 
-        self._load_worker.loaded.connect(self._load_thread.quit)
-        self._load_worker.failed.connect(self._load_thread.quit)
-        self._load_worker.aborted.connect(self._load_thread.quit)
-        self._load_thread.finished.connect(self._load_worker.deleteLater)
+        def cleanup() -> None:
+            if self._load_thread is thread:
+                self._load_thread = None
+            if self._load_worker is worker:
+                self._load_worker = None
 
-        self._load_thread.start()
+        thread.started.connect(worker.run)
+        worker.loaded.connect(self._on_compilers_loaded)
+        worker.failed.connect(self._on_compilers_failed)
+        worker.aborted.connect(self._on_compilers_aborted)
+
+        worker.loaded.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        worker.aborted.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(cleanup)
+
+        thread.start()
 
     def _on_compilers_aborted(self) -> None:
 
@@ -1291,27 +1574,43 @@ class MainWindow(QMainWindow):
         self.options_panel.btn_abort.setEnabled(True)
         self._set_busy(True)
         self.statusbar.showMessage("Probing...", 0)
+        max_workers = max(1, min(len(jobs), min(8, os.cpu_count() or 4)))
         self._log(
-            f"Probing {len(jobs)} group(s) using binary search (std={std}, library_rules={len(lib_rules)})...",
+            f"Probing {len(jobs)} group(s) using parallel binary search (workers={max_workers}, std={std}, library_rules={len(lib_rules)})...",
             clear=False,
         )
 
-        self._probe_thread = QThread(self)
-        self._probe_worker = CeProbeWorker(self._ce, jobs, source, std, extra_flags, lib_rules, self._probe_abort)
-        self._probe_worker.moveToThread(self._probe_thread)
+        thread = QThread()
+        thread.setObjectName("cetest-probe-thread")
+        worker = CeProbeWorker(self._ce, jobs, source, std, extra_flags, lib_rules, self._probe_abort, max_workers=max_workers)
+        worker.moveToThread(thread)
 
-        self._probe_thread.started.connect(self._probe_worker.run)
-        self._probe_worker.group_done.connect(self._on_group_done)
-        self._probe_worker.finished.connect(self._on_probe_finished)
-        self._probe_worker.failed.connect(self._on_probe_failed)
-        self._probe_worker.aborted.connect(self._on_probe_aborted)
+        self._probe_thread = thread
+        self._probe_worker = worker
 
-        self._probe_worker.finished.connect(self._probe_thread.quit)
-        self._probe_worker.failed.connect(self._probe_thread.quit)
-        self._probe_worker.aborted.connect(self._probe_thread.quit)
-        self._probe_thread.finished.connect(self._probe_worker.deleteLater)
+        def cleanup() -> None:
+            if self._probe_thread is thread:
+                self._probe_thread = None
+            if self._probe_worker is worker:
+                self._probe_worker = None
+            # Abort event only applies to the active probe run.
+            if self._probe_abort is not None and not self._thread_is_running(self._probe_thread):
+                self._probe_abort = None
 
-        self._probe_thread.start()
+        thread.started.connect(worker.run)
+        worker.group_done.connect(self._on_group_done)
+        worker.finished.connect(self._on_probe_finished)
+        worker.failed.connect(self._on_probe_failed)
+        worker.aborted.connect(self._on_probe_aborted)
+
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        worker.aborted.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(cleanup)
+
+        thread.start()
 
     def abort_probe(self) -> None:
 
