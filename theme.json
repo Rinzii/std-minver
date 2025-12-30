@@ -1,0 +1,36 @@
+{
+  "dark": {
+    "bg": "#1e1e1e",
+    "fg": "#d4d4d4",
+    "margin_bg": "#252526",
+    "margin_fg": "#c6c6c6",
+    "caret_fg": "#d4d4d4",
+    "caret_line": "#2a2d2e",
+    "selection_bg": "#264f78",
+    "selection_fg": "#ffffff",
+    "kw": "#c586c0",
+    "ty": "#4ec9b0",
+    "num": "#b5cea8",
+    "str": "#ce9178",
+    "com": "#6a9955",
+    "pp": "#c586c0",
+    "op": "#d4d4d4"
+  },
+  "light": {
+    "bg": "#ffffff",
+    "fg": "#1f2328",
+    "margin_bg": "#f6f8fa",
+    "margin_fg": "#57606a",
+    "caret_fg": "#1f2328",
+    "caret_line": "#fff8c5",
+    "selection_bg": "#cce5ff",
+    "selection_fg": "#000000",
+    "kw": "#8250df",
+    "ty": "#0550ae",
+    "num": "#953800",
+    "str": "#0a3069",
+    "com": "#6e7781",
+    "pp": "#cf222e",
+    "op": "#1f2328"
+  }
+}
