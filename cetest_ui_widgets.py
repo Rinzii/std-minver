@@ -45,13 +45,14 @@ from PyQt6.QtWidgets import (
 from PyQt6.Qsci import QsciLexerCPP, QsciScintilla
 
 from cetest_core import Theme, default_rich_css, wrap_pre_html
-from cetest_flags import ExtraFlagsConfig
+from cetest_flags import ExtraFlagsConfig, _normalize_user_flags_text
 from cetest_models import CompilerInfo, family_sort_key
 from cetest_prefs import (
     LibraryRule,
     _load_extra_flags_config,
     _normalize_ce_library_id,
     _normalize_ce_library_version,
+    _save_extra_flags_by_group,
     build_user_args_for_group,
 )
 
